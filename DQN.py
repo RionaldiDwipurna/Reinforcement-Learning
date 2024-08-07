@@ -45,12 +45,14 @@ class LunarLanderDQL():
 
     def train(self, episodes, render=False):
         env = gym.make("LunarLander-v2", render_mode='human' if render else None)
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
         n_states = env.observation_space.shape[0]
         n_action = env.action_space.n
         self.replay_mem = deque(maxlen=self.REPLAY_MEMORY_SIZE)
 
-        policy_dqn = DQN(n_action,n_states)
-        target_dqn = DQN(n_action,n_states)
+        policy_dqn = DQN(n_action,n_states).to(device)
+        target_dqn = DQN(n_action,n_states).to(device)
 
         epsilon = 1
         epsilon_stats = []
@@ -79,7 +81,7 @@ class LunarLanderDQL():
                     action = env.action_space.sample()
                 else:
                     with torch.no_grad():
-                        action = policy_dqn(torch.from_numpy(current_state)).argmax().item()
+                        action = policy_dqn(torch.from_numpy(current_state).float().to(device)).argmax().item()
 
                 next_state, reward, terminated, truncated, info = env.step(action)
 
@@ -130,10 +132,12 @@ class LunarLanderDQL():
         for current_state, next_state, action, reward, terminated, truncated, info in mini_batch:
             if not terminated and not truncated:
                 with torch.no_grad():
-                    max_value = torch.max(target_dqn(torch.from_numpy(next_state)))
-                    target = torch.FloatTensor(reward + self.DISCOUNT_FACTOR * max_value)
+                    current_state = torch.from_numpy(current_state).float().to(device)
+                    next_state = torch.from_numpy(next_state).float().to(device)
+                    max_value = torch.max(target_dqn(next_state))
+                    target = reward + self.DISCOUNT_FACTOR * max_value
             else:
-                target = torch.FloatTensor([reward])
+                target = torch.FloatTensor([reward]).to(device)
 
 
             q_value_policy = policy_dqn(torch.from_numpy(current_state))
