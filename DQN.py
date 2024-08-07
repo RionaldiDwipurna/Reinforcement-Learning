@@ -5,6 +5,8 @@ import torch.nn.functional as F
 import numpy as np
 import random
 from collections import deque
+import matplotlib.pyplot as plt
+import pickle
 
 class DQN(nn.Module):
     def __init__(self, action_shape, state_shape):
@@ -51,6 +53,8 @@ class LunarLanderDQL():
         target_dqn = DQN(n_action,n_states)
 
         epsilon = 1
+        epsilon_stats = []
+        rewards_stats = np.zeros(episodes)
 
         target_dqn.load_state_dict(policy_dqn.state_dict())
 
@@ -59,11 +63,17 @@ class LunarLanderDQL():
         step = 0
 
 
+        curr_reward = 0
         for i in range(episodes):
+            print(f'episodes: {i} / {episodes} rewards:')
             current_state = env.reset()[0]
             terminated = False
+            truncated = False
 
-            while(not terminated):
+            while(not terminated and not truncated):
+
+                if episodes % 10 == 0:
+                    env.render()
 
                 if random.random() < epsilon: #Epsilon greedy policy
                     action = env.action_space.sample()
@@ -76,22 +86,41 @@ class LunarLanderDQL():
 
                 self.replay_mem.append([current_state, next_state, action, reward, terminated, truncated, info])
 
+                curr_reward = reward
                 current_state = next_state
 
                 step += 1
 
+                if reward == 100:
+                    rewards_stats[i] = 100
+    
                 if len(self.replay_mem) > self.MIN_REPLAY_MEMORY_SIZE:
                     mini_batch = random.sample(self.replay_mem, self.REPLAY_MEMORY_BATCH)
                     self.optimize(mini_batch, policy_dqn, target_dqn)
 
                     epsilon = max(epsilon - 1/episodes, 0)
 
-                    if step > self.SYNC_TIME:
+                    if step % self.SYNC_TIME == 0:
                         target_dqn.load_state_dict(policy_dqn.state_dict())
-                        step = 0
+            print(curr_reward) 
 
         env.close()
+        
         torch.save(policy_dqn.state_dict(), "LunarLander_DQL.pt")
+
+        plt.figure(1)
+
+        sum_rewards = np.zeros(episodes)
+        for x in range(episodes):
+            sum_rewards[x] = np.sum(rewards_stats[max(0, x-100):(x+1)])
+        plt.subplot(121) # plot on a 1 row x 2 col grid, at cell 1
+        plt.plot(sum_rewards)
+        
+        plt.subplot(122) # plot on a 1 row x 2 col grid, at cell 2
+        plt.plot(epsilon_stats)
+        
+        # Save plots
+        plt.savefig('lunar_lander.png')
 
 
 
@@ -99,7 +128,7 @@ class LunarLanderDQL():
         q_value_policy_array = []
         q_value_target_array = []
         for current_state, next_state, action, reward, terminated, truncated, info in mini_batch:
-            if not terminated:
+            if not terminated and not truncated:
                 with torch.no_grad():
                     max_value = torch.max(target_dqn(torch.from_numpy(next_state)))
                     target = torch.FloatTensor(reward + self.DISCOUNT_FACTOR * max_value)
@@ -109,7 +138,6 @@ class LunarLanderDQL():
 
             q_value_policy = policy_dqn(torch.from_numpy(current_state))
             q_value_policy_array.append(q_value_policy)
-
 
             q_value_target = target_dqn(torch.from_numpy(current_state))
             q_value_target[action] = target
@@ -149,7 +177,7 @@ def main():
     # LunarLander.start();
 
     lunarLander = LunarLanderDQL()
-    lunarLander.train(100)
+    lunarLander.train(1000)
     
 
 
