@@ -103,7 +103,7 @@ class LunarLanderDQL():
                         target_dqn.load_state_dict(policy_dqn.state_dict())
 
                 if episodes % 500 == 0:
-                    torch.save(policy_dqn.cpu().state_dict(), "LunarLander_DQL.pt")
+                    torch.save(policy_dqn.state_dict(), f"LunarLander_DQL_{episodes}.pt")
 
 
             print(f'episodes: {i} / {episodes} rewards: {np.mean(curr_reward)}')
@@ -186,7 +186,7 @@ class LunarLanderDQL():
 
 def main():
     lunarLander = LunarLanderDQL()
-    lunarLander.train(1000)
+    lunarLander.train(2000)
     
 
 
