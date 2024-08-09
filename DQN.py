@@ -26,11 +26,12 @@ class DQN(nn.Module):
 class LunarLanderDQL():
     LEARNING_RATE = 0.0005
     DISCOUNT_FACTOR = 0.95
-    SYNC_TIME = 5
+    SYNC_TIME = 10000
 
     REPLAY_MEMORY_SIZE = 100000
     MIN_REPLAY_MEMORY_SIZE = 500
     REPLAY_MEMORY_BATCH = 64
+    NUM_DIVISION = 20
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -38,6 +39,15 @@ class LunarLanderDQL():
     replay_mem = None
 
     loss_function = nn.MSELoss()
+
+    def input_discrete(self, state)->torch.tensor:
+        state_x_pos = np.digitize(state[0], self.x_pos)
+        state_y_pos = np.digitize(state[1], self.y_pos)
+        state_x_vel = np.digitize(state[2], self.x_vel)
+        state_y_vel = np.digitize(state[3], self.y_vel)
+        state_angle = np.digitize(state[4], self.angle)
+        state_ang_v = np.digitize(state[5], self.ang_v)
+        return torch.tensor([state_x_pos, state_y_pos, state_x_vel, state_y_vel, state_angle,state_ang_v, state[6], state[7]]).to(self.device)
 
     def train(self, episodes, render=False):
         env = gym.make("LunarLander-v2", render_mode='human' if render else None)
@@ -61,6 +71,13 @@ class LunarLanderDQL():
 
         self.optimizer = torch.optim.Adam(policy_dqn.parameters(), lr=self.LEARNING_RATE)
 
+        self.x_pos = np.linspace(env.observation_space.low[0], env.observation_space.high[0], self.NUM_DIVISION) 
+        self.y_pos = np.linspace(env.observation_space.low[1], env.observation_space.high[1], self.NUM_DIVISION) 
+        self.x_vel = np.linspace(env.observation_space.low[2], env.observation_space.high[2], self.NUM_DIVISION) 
+        self.y_vel = np.linspace(env.observation_space.low[3], env.observation_space.high[3], self.NUM_DIVISION) 
+        self.angle = np.linspace(env.observation_space.low[4], env.observation_space.high[4], self.NUM_DIVISION) 
+        self.ang_v = np.linspace(env.observation_space.low[5], env.observation_space.high[5], self.NUM_DIVISION) 
+
         step = 0
 
 
@@ -76,7 +93,8 @@ class LunarLanderDQL():
                     action = env.action_space.sample()
                 else:
                     with torch.no_grad():
-                        action = policy_dqn(torch.from_numpy(current_state).float().to(self.device)).argmax().item()
+                        # action = policy_dqn(torch.from_numpy(current_state).float().to(self.device)).argmax().item()
+                        action = policy_dqn(self.input_discrete(current_state)).argmax().item()
 
                 next_state, reward, terminated, truncated, info = env.step(action)
 
@@ -102,7 +120,7 @@ class LunarLanderDQL():
                     if step % self.SYNC_TIME == 0:
                         target_dqn.load_state_dict(policy_dqn.state_dict())
 
-                if i % 500 == 0:
+                if (i+1) % 500 == 0:
                     torch.save(policy_dqn.state_dict(), f"LunarLander_DQL_{i}.pt")
 
 
@@ -132,8 +150,11 @@ class LunarLanderDQL():
         q_value_policy_array = []
         q_value_target_array = []
         for current_state, next_state, action, reward, terminated, truncated, info in mini_batch:
-            current_state = torch.from_numpy(current_state).float().to(self.device)
-            next_state = torch.from_numpy(next_state).float().to(self.device)
+            # current_state = torch.from_numpy(current_state).float().to(self.device)
+            # next_state =    torch.from_numpy(next_state).float().to(self.device)
+            current_state = self.input_discrete(current_state) 
+            current_state = self.input_discrete(nex_state) 
+
             if not terminated and not truncated:
                 with torch.no_grad():
                     max_value = torch.max(target_dqn(next_state))
@@ -145,7 +166,7 @@ class LunarLanderDQL():
             q_value_policy = policy_dqn(current_state)
             q_value_policy_array.append(q_value_policy)
 
-            q_value_target = target_dqn(current_state).clone()
+            q_value_target = target_dqn(current_state)
             q_value_target[action] = target
             q_value_target_array.append(q_value_target)
 
