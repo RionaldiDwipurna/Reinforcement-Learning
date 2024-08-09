@@ -102,7 +102,7 @@ class LunarLanderDQL():
                     if step % self.SYNC_TIME == 0:
                         target_dqn.load_state_dict(policy_dqn.state_dict())
 
-                if episodes % 500 == 0:
+                if i % 500 == 0:
                     torch.save(policy_dqn.state_dict(), f"LunarLander_DQL_{episodes}.pt")
 
 
