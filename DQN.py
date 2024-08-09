@@ -56,6 +56,7 @@ class LunarLanderDQL():
         epsilon_stats = []
         rewards_stats = np.zeros(episodes)
 
+
         target_dqn.load_state_dict(policy_dqn.state_dict())
 
         self.optimizer = torch.optim.Adam(policy_dqn.parameters(), lr=self.LEARNING_RATE)
@@ -64,15 +65,12 @@ class LunarLanderDQL():
 
 
         for i in range(episodes):
-            print(f'episodes: {i} / {episodes} rewards:')
             current_state = env.reset()[0]
             terminated = False
             truncated = False
 
+            curr_reward = []
             while(not terminated and not truncated):
-
-                if episodes % 10 == 0:
-                    env.render()
 
                 if random.random() < epsilon: #Epsilon greedy policy
                     action = env.action_space.sample()
@@ -85,13 +83,15 @@ class LunarLanderDQL():
 
                 self.replay_mem.append([current_state, next_state, action, reward, terminated, truncated, info])
 
+                curr_reward.append(reward)
+
                 current_state = next_state
 
                 step += 1
 
                 if reward == 100:
                     rewards_stats[i] = 100
-    
+
                 if len(self.replay_mem) > self.MIN_REPLAY_MEMORY_SIZE:
                     mini_batch = random.sample(self.replay_mem, self.REPLAY_MEMORY_BATCH)
                     self.optimize(mini_batch, policy_dqn, target_dqn)
@@ -102,9 +102,11 @@ class LunarLanderDQL():
                     if step % self.SYNC_TIME == 0:
                         target_dqn.load_state_dict(policy_dqn.state_dict())
 
+            print(f'episodes: {i} / {episodes} rewards: {np.mean(curr_reward)}')
+
         env.close()
         
-        torch.save(policy_dqn.state_dict(), "LunarLander_DQL.pt")
+        torch.save(policy_dqn.cpu().state_dict(), "LunarLander_DQL.pt")
 
         plt.figure(1)
 
@@ -133,7 +135,7 @@ class LunarLanderDQL():
                     max_value = torch.max(target_dqn(next_state))
                     target = reward + self.DISCOUNT_FACTOR * max_value
             else:
-                target = torch.FloatTensor([reward]).to(self.device)
+                target = torch.tensor([reward]).to(self.device)
 
 
             q_value_policy = policy_dqn(current_state)
