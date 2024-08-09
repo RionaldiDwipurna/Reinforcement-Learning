@@ -24,13 +24,13 @@ class DQN(nn.Module):
 
 
 class LunarLanderDQL():
-    LEARNING_RATE = 0.001
+    LEARNING_RATE = 0.0005
     DISCOUNT_FACTOR = 0.95
     SYNC_TIME = 5
 
-    REPLAY_MEMORY_SIZE = 5000
+    REPLAY_MEMORY_SIZE = 100000
     MIN_REPLAY_MEMORY_SIZE = 500
-    REPLAY_MEMORY_BATCH = 32
+    REPLAY_MEMORY_BATCH = 64
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -172,7 +172,7 @@ class LunarLanderDQL():
 
             while(not terminated and not truncated):  
                 with torch.no_grad():
-                    action = policy_dqn(torch.from_numpy(current_state).float().to(self.device)).argmax().item()
+                    action = policy_dqn(torch.from_numpy(state).float().to(self.device)).argmax().item()
 
                 observation, reward, terminated, truncated, info = env.step(action)
 
