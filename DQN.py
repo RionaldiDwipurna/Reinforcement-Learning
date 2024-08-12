@@ -124,7 +124,7 @@ class LunarLanderDQL():
 
             # if (i+1) % 500 == 0:
             #     torch.save(policy_dqn.state_dict(), f"LunarLander_DQL_{i}.pt")
-            if rewards > best_rewards:
+            if rewards > best_rewards and i > 500:
                 print(f'best_rewards: {best_rewards}')
                 torch.save(policy_dqn.state_dict(), f"LunarLander_DQL_{i}.pt")
 
