@@ -158,7 +158,7 @@ class LunarLanderDQL():
             # current_state = torch.from_numpy(current_state).float().to(self.device)
             # next_state =    torch.from_numpy(next_state).float().to(self.device)
             current_state = self.input_discrete(current_state) 
-            current_state = self.input_discrete(next_state) 
+            next_state = self.input_discrete(next_state) 
 
             if not terminated and not truncated:
                 with torch.no_grad():
