@@ -112,6 +112,7 @@ class LunarLanderDQL():
                 step += 1
 
                 if reward == 100:
+                    print("reward 100 get")
                     rewards_stats[i] = 100
 
                 if len(self.replay_mem) > self.MIN_REPLAY_MEMORY_SIZE:
@@ -128,7 +129,7 @@ class LunarLanderDQL():
                     torch.save(policy_dqn.state_dict(), f"LunarLander_DQL_{i}.pt")
 
 
-            print(f'episodes: {i} / {episodes} rewards: {np.mean(curr_reward)}')
+            print(f'episodes: {i} / {episodes} rewards avg: {np.mean(curr_reward)} reward sum: {np.sum(curr_reward)}')
 
         env.close()
         
