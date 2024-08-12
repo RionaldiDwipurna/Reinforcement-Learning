@@ -1,4 +1,4 @@
-#referece code:
+#reference code:
 #https://github.com/johnnycode8/gym_solutions/
 
 
@@ -23,7 +23,7 @@ class DQN(nn.Module):
     def forward(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        x = self.out(x)  # Activation is linear by default in PyTorch
+        x = self.out(x)  
         return x
 
 
