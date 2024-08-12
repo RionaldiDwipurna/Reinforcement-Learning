@@ -213,7 +213,7 @@ class LunarLanderDQL():
 
             while(not terminated and not truncated):  
                 with torch.no_grad():
-                    action = policy_dqn(torch.from_numpy(state).float().to(self.device)).argmax().item()
+                    action = policy_dqn(self.input_discrete(current_state)).argmax().item()
 
                 observation, reward, terminated, truncated, info = env.step(action)
 
