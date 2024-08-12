@@ -84,6 +84,7 @@ class LunarLanderDQL():
 
         step = 0
 
+        best_rewards = -1000
 
         for i in range(episodes):
             current_state = env.reset()[0]
@@ -91,6 +92,8 @@ class LunarLanderDQL():
             truncated = False
 
             curr_reward = []
+            rewards = 0
+            
             while(not terminated and not truncated):
 
                 if random.random() < epsilon: #Epsilon greedy policy
@@ -104,32 +107,39 @@ class LunarLanderDQL():
 
 
                 self.replay_mem.append([current_state, next_state, action, reward, terminated, truncated, info])
-
-                curr_reward.append(reward)
+                rewards += reward
 
                 current_state = next_state
 
                 step += 1
 
-                if reward == 100:
-                    print("reward 100 get")
-                    rewards_stats[i] = 100
-
-                if len(self.replay_mem) > self.MIN_REPLAY_MEMORY_SIZE:
-                    mini_batch = random.sample(self.replay_mem, self.REPLAY_MEMORY_BATCH)
-                    self.optimize(mini_batch, policy_dqn, target_dqn)
-
-                    # epsilon = max(epsilon - 1/episodes, 0)
-                    epsilon = max(epsilon_end, epsilon * epsilon_decay)
-
-                    if step % self.SYNC_TIME == 0:
-                        target_dqn.load_state_dict(policy_dqn.state_dict())
-
-                if (i+1) % 500 == 0:
-                    torch.save(policy_dqn.state_dict(), f"LunarLander_DQL_{i}.pt")
 
 
-            print(f'episodes: {i} / {episodes} rewards avg: {np.mean(curr_reward)} reward sum: {np.sum(curr_reward)}')
+            curr_reward.append(rewards)
+            print(f'episodes: {i} / {episodes} rewards avg: {np.mean(curr_reward)} reward sum: {rewards}')
+
+            if reward == 100:
+                print("reward 100 get")
+                rewards_stats[i] = 100
+
+            # if (i+1) % 500 == 0:
+            #     torch.save(policy_dqn.state_dict(), f"LunarLander_DQL_{i}.pt")
+            if rewards > best_rewards:
+                print(f'best_rewards: {best_rewards}')
+                torch.save(policy_dqn.state_dict(), f"LunarLander_DQL_{i}.pt")
+
+
+            if len(self.replay_mem) > self.MIN_REPLAY_MEMORY_SIZE:
+                mini_batch = random.sample(self.replay_mem, self.REPLAY_MEMORY_BATCH)
+                self.optimize(mini_batch, policy_dqn, target_dqn)
+
+                # epsilon = max(epsilon - 1/episodes, 0)
+                epsilon = max(epsilon_end, epsilon * epsilon_decay)
+
+                if step % self.SYNC_TIME == 0:
+                    target_dqn.load_state_dict(policy_dqn.state_dict())
+
+
 
         env.close()
         
@@ -212,7 +222,7 @@ class LunarLanderDQL():
 
 def main():
     lunarLander = LunarLanderDQL()
-    lunarLander.train(2000)
+    lunarLander.train(20000)
     
 
 
