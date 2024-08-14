@@ -247,14 +247,13 @@ class LunarLanderDQL():
 
                 next_state, reward, terminated, truncated, info = env.step(action)
                 current_state = next_state
-                print(reward)
 
         env.close()
 
 def main():
     lunarLander = LunarLanderDQL()
     # lunarLander.train(episodes=500, model_path="LunarLander_DQL_76.pt", render=False)
-    lunarLander.testing(episodes=5, model_path="LunarLander_DQL_2387.pt")
+    lunarLander.testing(episodes=5, model_path="LunarLander_DQL_18162.pt")
     
 
 
