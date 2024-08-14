@@ -1,4 +1,4 @@
-#reference code:
+#reference code
 #https://github.com/johnnycode8/gym_solutions/
 
 
@@ -57,7 +57,16 @@ class LunarLanderDQL():
         state_ang_v = np.digitize(state[5], self.ang_v)
         return torch.tensor([state_x_pos, state_y_pos, state_x_vel, state_y_vel, state_angle,state_ang_v, state[6], state[7]]).to(self.device)
 
-    def train(self, episodes, render=False):
+    def initialize_discrete_param(self, env):
+        self.x_pos = np.linspace(env.observation_space.low[0], env.observation_space.high[0], self.NUM_DIVISION) 
+        self.y_pos = np.linspace(env.observation_space.low[1], env.observation_space.high[1], self.NUM_DIVISION) 
+        self.x_vel = np.linspace(env.observation_space.low[2], env.observation_space.high[2], self.NUM_DIVISION) 
+        self.y_vel = np.linspace(env.observation_space.low[3], env.observation_space.high[3], self.NUM_DIVISION) 
+        self.angle = np.linspace(env.observation_space.low[4], env.observation_space.high[4], self.NUM_DIVISION) 
+        self.ang_v = np.linspace(env.observation_space.low[5], env.observation_space.high[5], self.NUM_DIVISION) 
+
+
+    def train(self, episodes, render=False, model_path=None):
         env = gym.make("LunarLander-v2", render_mode='human' if render else None)
 
         n_states = env.observation_space.shape[0]
@@ -66,6 +75,10 @@ class LunarLanderDQL():
 
         policy_dqn = DQN(n_action,n_states).to(self.device)
         target_dqn = DQN(n_action,n_states).to(self.device)
+
+        if model_path != None:
+            policy_dqn.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+            policy_dqn.eval()    
 
         epsilon = 1.0
         epsilon_end = 0.01
@@ -79,12 +92,8 @@ class LunarLanderDQL():
 
         self.optimizer = torch.optim.Adam(policy_dqn.parameters(), lr=self.LEARNING_RATE)
 
-        self.x_pos = np.linspace(env.observation_space.low[0], env.observation_space.high[0], self.NUM_DIVISION) 
-        self.y_pos = np.linspace(env.observation_space.low[1], env.observation_space.high[1], self.NUM_DIVISION) 
-        self.x_vel = np.linspace(env.observation_space.low[2], env.observation_space.high[2], self.NUM_DIVISION) 
-        self.y_vel = np.linspace(env.observation_space.low[3], env.observation_space.high[3], self.NUM_DIVISION) 
-        self.angle = np.linspace(env.observation_space.low[4], env.observation_space.high[4], self.NUM_DIVISION) 
-        self.ang_v = np.linspace(env.observation_space.low[5], env.observation_space.high[5], self.NUM_DIVISION) 
+        self.initialize_discrete_param(env)
+
 
         step = 0
 
@@ -124,10 +133,11 @@ class LunarLanderDQL():
 
                 # if (i+1) % 500 == 0:
                 #     torch.save(policy_dqn.state_dict(), f"LunarLander_DQL_{i}.pt")
-                if rewards > best_rewards and i > 500:
+                if rewards > best_rewards:
                     best_rewards = rewards
                     print(f'best_rewards: {best_rewards}')
-                    torch.save(policy_dqn.state_dict(), f"LunarLander_DQL_{i}.pt")
+                    torch.save(policy_dqn.cpu().state_dict(),f"LunarLander_DQL_{i}.pt")
+                    # torch.save(policy_dqn.state_dict(), f"LunarLander_DQL_{i}.pt")
 
 
                 if len(self.replay_mem) > self.MIN_REPLAY_MEMORY_SIZE:
@@ -169,13 +179,12 @@ class LunarLanderDQL():
         sum_rewards = np.zeros(episodes)
         for x in range(episodes):
             sum_rewards[x] = np.sum(rewards_stats[max(0, x-100):(x+1)])
-        plt.subplot(121) # plot on a 1 row x 2 col grid, at cell 1
+        plt.subplot(121)
         plt.plot(sum_rewards)
         
-        plt.subplot(122) # plot on a 1 row x 2 col grid, at cell 2
+        plt.subplot(122)
         plt.plot(epsilon_stats)
         
-        # Save plots
         plt.savefig('lunar_lander.png')
 
 
@@ -213,35 +222,39 @@ class LunarLanderDQL():
         loss.backward()
         self.optimizer.step()
 
-    def testing(self, episodes):
+    def testing(self, episodes,model_path):
         env = gym.make("LunarLander-v2", render_mode="human")
-        observation, info = env.reset(seed=42)
+        self.initialize_discrete_param(env)
 
         n_states = env.observation_space.shape[0]
         n_action = env.action_space.n
 
+
         policy_dqn = DQN(n_action,n_states).to(self.device)
-        policy_dqn.load_state_dict(torch.load("LunarLander_DQL.pt"))
+        policy_dqn.load_state_dict(torch.load(model_path, map_location=self.device))
         policy_dqn.eval()    
 
         for i in range(episodes):
-            state = env.reset()[0]  # Initialize to state 0
-            terminated = False      # True when agent falls in hole or reached goal
-            truncated = False       # True when agent takes more than 200 actions            
+            current_state = env.reset()[0]  
+            terminated = False      
+            truncated = False                
 
             while(not terminated and not truncated):  
                 with torch.no_grad():
-                    action = policy_dqn(self.input_discrete(current_state)).argmax().item()
+                    discretized_state = self.input_discrete(current_state)
+                    q_values = policy_dqn(discretized_state)
+                    action = q_values.argmax().item()
 
-                observation, reward, terminated, truncated, info = env.step(action)
+                next_state, reward, terminated, truncated, info = env.step(action)
+                current_state = next_state
+                print(reward)
 
         env.close()
 
-
-
 def main():
     lunarLander = LunarLanderDQL()
-    lunarLander.train(20000)
+    # lunarLander.train(episodes=500, model_path="LunarLander_DQL_76.pt", render=False)
+    lunarLander.testing(episodes=5, model_path="LunarLander_DQL_2387.pt")
     
 
 
