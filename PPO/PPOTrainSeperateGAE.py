@@ -59,7 +59,7 @@ class TrainingPPO:
         self.beta = 3
         self.old_policy = None
         self.current_policy = None
-        self.c1 = 1
+        self.c1 = 0.5
         self.c2 = 0.01
         self.max_step_per_eps = 1000
         self.num_eps = 1000
@@ -79,25 +79,7 @@ class TrainingPPO:
 
         self.actor_model = Actor(self.n_states , 128, self.n_action)
         self.critic_model = Critic(self.n_states , 128)
-        # self.actor = 1
 
-    def input_discrete(self, state)->torch.tensor:
-        state_x_pos = np.digitize(state[0], self.x_pos)
-        state_y_pos = np.digitize(state[1], self.y_pos)
-        state_x_vel = np.digitize(state[2], self.x_vel)
-        state_y_vel = np.digitize(state[3], self.y_vel)
-        state_angle = np.digitize(state[4], self.angle)
-        state_ang_v = np.digitize(state[5], self.ang_v)
-        return torch.tensor([state_x_pos, state_y_pos, state_x_vel, state_y_vel, state_angle,state_ang_v, state[6], state[7]]).to(self.device)
-
-    def initialize_discrete_param(self, env):
-        self.x_pos = np.linspace(env.observation_space.low[0], env.observation_space.high[0], self.NUM_DIVISION) 
-        self.y_pos = np.linspace(env.observation_space.low[1], env.observation_space.high[1], self.NUM_DIVISION) 
-        self.x_vel = np.linspace(env.observation_space.low[2], env.observation_space.high[2], self.NUM_DIVISION) 
-        self.y_vel = np.linspace(env.observation_space.low[3], env.observation_space.high[3], self.NUM_DIVISION) 
-        self.angle = np.linspace(env.observation_space.low[4], env.observation_space.high[4], self.NUM_DIVISION) 
-        self.ang_v = np.linspace(env.observation_space.low[5], env.observation_space.high[5], self.NUM_DIVISION) 
-    
     def calculate_RTG(self, reward_batched,dones):
         lst_total_r = []
         total_r = 0  # Initialize total return
@@ -111,28 +93,6 @@ class TrainingPPO:
         lst_total_r.reverse()
     
         return torch.tensor(lst_total_r)  # Convert to tensor before returning
-
-        # rewards = []
-        # discounted_reward = 0
-        # for reward, is_terminal in zip(reversed(reward_batched), reversed(dones)):
-        #     if is_terminal:
-        #         discounted_reward = 0
-        #     discounted_reward = reward + (self.discount * discounted_reward)
-        #     rewards.insert(0, discounted_reward)
-        
-        # # Normalizing the rewards
-        # rewards = torch.tensor(rewards, dtype=torch.float32)
-        # rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
-        # return rewards
-
-        # batch_rtgs = []
-        # for ep_rews in reversed(reward_batched):
-        #     discounted_reward = 0
-        #     for rew in reversed(ep_rews):
-        #         discounted_reward = rew + discounted_reward + self.discount
-        #         batch_rtgs.insert(0, discounted_reward)
-        # batch_rtgs = torch.tensor(batch_rtgs, dtype=torch.float32)
-        # return batch_rtgs
 
     def compute_gae(self, rewards, values, dones):
         lambda_discount = self.lambda_GAE * self.discount
@@ -175,15 +135,6 @@ class TrainingPPO:
         return lst_at_val, returns
 
     def calculate_delta_t(self, reward_lst, value_lst, dones_lst):
-        # lst_delta_t = [] 
-        # state = curr_lst # Get current state
-        # state_next = next_lst # Get next state
-
-        # _, value_next = model_current(state_next)
-        # _, value_current = model_current(state)
-        # value_next = value_next.view(-1)
-        # value_current = value_current.view(-1)
-
         value_current = value_lst[:-1]
         value_next = value_lst[1:]
         value_current = torch.cat((value_current, torch.tensor([0.0])))
@@ -192,26 +143,6 @@ class TrainingPPO:
 
 
         return lst_delta_t
-
-
-
-    def clip_loss(self, At, log_prob_current, log_prob_old):
-
-        rt = torch.exp(log_prob_current - log_prob_old)
-        clipped_val = torch.clamp(rt, 1 - self.epsilon, 1 + self.epsilon)
-        min_val = torch.min(rt * At, clipped_val * At).mean()
-        return -min_val
-
-    def value_loss(self, value_current, returns):
-        return F.mse_loss(value_current, returns)
-
-    def entropy_bonus(self, logits):
-        prob = F.softmax(logits, dim=-1) # pi(a | t)
-
-        return -torch.sum(prob * torch.log(prob + 1e-10), dim=-1).mean()
-    
-    def total_loss(self, clip_l, val_l, entropy_l):
-        return clip_l + self.c1 * val_l - self.c2 * entropy_l
     
     def get_action(self, current_state, actor_model, critic_model):
         policy = actor_model(current_state)
@@ -233,10 +164,11 @@ class TrainingPPO:
         probs = torch.softmax(policy, dim=-1)
 
         dist = torch.distributions.Categorical(probs=probs)
+        entropy = dist.entropy()
         log_prob = dist.log_prob(action_lst_batched)
         # log(PI(at | st)): log prob of selected action given state, ex: action = 2 , prob = [0.1, 0.5, 0.2, 0.3], pi(at |st) = 0.2
 
-        return policy, log_prob, V.squeeze(-1)
+        return entropy, log_prob, V.squeeze(-1)
 
     def run_policy(self, actor, critic, env, value_lst_batched, probs_lst_batched, curr_lst_batched, action_lst_batched, reward_lst_batched, dones_lst_batched, pid):
 
@@ -401,16 +333,13 @@ class TrainingPPO:
         return value_lst_batched, probs_lst_batched, curr_lst_batched, action_lst_batched, reward_lst_batched, dones_lst_batched
 
 
-    def train(self, render=False, paralel=False, with_gae=True):
+    def train(self, render=False, paralel=False, with_gae=True,combined_loss=True):
 
         env = self.env
         actor_model = self.actor_model
         critic_model = self.critic_model
         optimizer_actor = torch.optim.Adam(actor_model.parameters(), lr=self.adam_step)
         optimizer_critic = torch.optim.Adam(critic_model.parameters(), lr=self.adam_step)
-
-        # if old_model != None:
-        #     old_model.load_state_dict(self.old_policy.state_dict())
 
         for i in range(self.num_eps):
 
@@ -439,50 +368,38 @@ class TrainingPPO:
                 # print(f"Average Reward for {i} episode: {torch.mean(reward_lst_batched).item()} | Max Reward: {torch.max(reward_lst_batched).item()}")
 
 
-            value_loss_avg = 0
-            ppo_loss_avg = 0
-            total_loss_avg = 0
-
-
             for epoch in range(self.epoch):
 
                 # Calculate the new Value and log probability
-                logits, new_log_prob, V = self.learn(curr_lst_batched=curr_lst_batched, action_lst_batched=action_lst_batched,actor_model=actor_model,critic_model=critic_model)
+                entropy, new_log_prob, V = self.learn(curr_lst_batched=curr_lst_batched, action_lst_batched=action_lst_batched,actor_model=actor_model,critic_model=critic_model)
 
 
                 rt = torch.exp(new_log_prob - probs_lst_batched)
                 clipped_val = torch.clamp(rt, 1 - self.epsilon, 1 + self.epsilon)
                 L_CLIP = (- torch.min(rt * lst_at_val, clipped_val * lst_at_val)).mean()
                 L_value = nn.MSELoss()(V,returns)
+                if combined_loss:
+                    # using combined loss
+                    total_loss = L_CLIP + self.c1 * L_value + self.c2 * entropy.mean()
 
-                # Calculate the ppo loss
-                # L_CLIP = self.clip_loss(At=lst_at_val, log_prob_current=new_log_prob, log_prob_old=probs_lst_batched)
+                    optimizer_actor.zero_grad() 
+                    optimizer_critic.zero_grad() 
 
-                # Calculate the value loss
-                # L_value = self.value_loss(V, returns)
-
-                # Calculate the entropy bonus
-                # entropy_bonus = self.entropy_bonus(logits)
-
-                # Calculate the total loss
-                # total_loss = self.total_loss(clip_l=L_CLIP, val_l = L_value, entropy_l= entropy_bonus)
-
-                value_loss_avg += L_value
-                ppo_loss_avg += L_CLIP
-                # total_loss_avg += total_loss
-
-                optimizer_actor.zero_grad() 
-                L_CLIP.backward()
-                optimizer_actor.step()
+                    total_loss.backward()
 
 
-                optimizer_critic.zero_grad() 
-                L_value.backward()
-                optimizer_critic.step()
-            
-            # print(f"PPO loss for episode: {i}: {L_CLIP/self.epoch}")
-            # print(f"Value loss for episode: {i}: {L_value/self.epoch}")
-            # print(f"Total loss for episode: {i}: {total_loss/self.epoch}")
+                    optimizer_actor.step()
+                    optimizer_critic.step()
+                else:
+                    # Using seperate loss
+                    optimizer_actor.zero_grad() 
+                    L_CLIP.backward()
+                    optimizer_actor.step()
+
+
+                    optimizer_critic.zero_grad() 
+                    L_value.backward()
+                    optimizer_critic.step()
 # 
         torch.save(actor_model.state_dict(), './ppo_act_model.pth')
         torch.save(critic_model.state_dict(), './ppo_crit_model.pth')
