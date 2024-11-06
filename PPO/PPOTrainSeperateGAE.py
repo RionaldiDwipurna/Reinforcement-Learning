@@ -94,6 +94,26 @@ class TrainingPPO:
     
         return torch.tensor(lst_total_r)  # Convert to tensor before returning
 
+
+    def compute_gae_multi_batch(self,rewards, values, dones):
+        lambda_discount = self.lambda_GAE * self.discount
+        gae = 0
+        advantages = torch.zeros(len(rewards))
+
+        for t in reversed(range(len(rewards))):
+            if dones[t] == 1:
+                value_next= 0
+            else:
+                value_next = values[t+1]
+
+            delta_t = rewards[t] + self.discount * value_next - values[t]
+            gae = delta_t  + lambda_discount * gae * (1-dones[t])
+            advantages[t] = gae
+
+        returns = advantages + values
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        return advantages, returns
+
     def compute_gae(self, rewards, values, dones):
         lambda_discount = self.lambda_GAE * self.discount
         returns = []
@@ -273,7 +293,7 @@ class TrainingPPO:
 
         return value_lst_batched, probs_lst_batched, curr_lst_batched, action_lst_batched, reward_lst_batched, dones_lst_batched
     
-    def run_non_paralel(self, actor, critic, env):
+    def run_non_paralel(self, actor, critic, env, same_size):
         probs_lst_batched   = []
         curr_lst_batched    = []
         # next_lst_batched    = []
@@ -318,9 +338,10 @@ class TrainingPPO:
                 break
 
         # GAE
-        with torch.no_grad():
-            _,_,pred_value = self.get_action(current_state,actor,critic)
-        value_lst_batched.append(pred_value)
+        if not same_size:
+            with torch.no_grad():
+                _,_,pred_value = self.get_action(current_state,actor,critic)
+            value_lst_batched.append(pred_value)
 
         value_lst_batched = torch.stack(value_lst_batched)
         probs_lst_batched = torch.stack(probs_lst_batched)
@@ -333,7 +354,7 @@ class TrainingPPO:
         return value_lst_batched, probs_lst_batched, curr_lst_batched, action_lst_batched, reward_lst_batched, dones_lst_batched
 
 
-    def train(self, render=False, paralel=False, with_gae=True,combined_loss=True):
+    def train(self, render=False, paralel=False, with_gae=True,combined_loss=False, same_size=False):
 
         env = self.env
         actor_model = self.actor_model
@@ -353,11 +374,18 @@ class TrainingPPO:
                 # Calculate the Generalized Advantage Estimation (GAE)
                 lst_at_val, returns = self.calculate_At(lst_delta_t=lst_delta_t, lst_dones=dones_lst_batched, V=value_lst_batched)
             else:
-                if with_gae:
-                    value_lst_batched, probs_lst_batched, curr_lst_batched, action_lst_batched, reward_lst_batched, dones_lst_batched = self.run_non_paralel(actor_model,critic_model, env)
-                    lst_at_val, returns = self.compute_gae(rewards=reward_lst_batched, values=value_lst_batched ,dones=dones_lst_batched)
+
+                if same_size:
+                    value_lst_batched, probs_lst_batched, curr_lst_batched, action_lst_batched, reward_lst_batched, dones_lst_batched = self.run_non_paralel(actor_model,critic_model, env, same_size=True)
                 else:
-                    value_lst_batched, probs_lst_batched, curr_lst_batched, action_lst_batched, reward_lst_batched, dones_lst_batched = self.run_non_paralel(actor_model,critic_model, env)
+                    value_lst_batched, probs_lst_batched, curr_lst_batched, action_lst_batched, reward_lst_batched, dones_lst_batched = self.run_non_paralel(actor_model,critic_model, env, same_size=False)
+
+                if with_gae:
+                    if same_size:
+                        lst_at_val, returns = self.compute_gae_multi_batch(rewards=reward_lst_batched, values=value_lst_batched ,dones=dones_lst_batched)
+                    else:
+                        lst_at_val, returns = self.compute_gae(rewards=reward_lst_batched, values=value_lst_batched ,dones=dones_lst_batched)
+                else:
                     returns = self.calculate_RTG(reward_lst_batched, dones_lst_batched)
                     lst_at_val = returns - value_lst_batched
                     lst_at_val = (lst_at_val - lst_at_val.mean())/ (lst_at_val.std() + 1e-10)
