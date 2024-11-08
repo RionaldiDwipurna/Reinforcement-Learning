@@ -7,6 +7,7 @@ import random
 import multiprocessing as mp
 import functools
 from warnings import filterwarnings
+import matplotlib.pyplot as plt
 
 # WORKS DONT TOUCH (pretty good)
 class Actor(nn.Module):
@@ -302,7 +303,7 @@ class TrainingPPO:
         dones_lst_batched   = []
         value_lst_batched   = []
 
-        render=False
+        # render=False
 
         # while (not terminated and not truncated):
         current_state = torch.Tensor(env.reset()[0])
@@ -353,14 +354,36 @@ class TrainingPPO:
 
         return value_lst_batched, probs_lst_batched, curr_lst_batched, action_lst_batched, reward_lst_batched, dones_lst_batched
 
+    def test(self, actor_path, critic_path):
+        render = True
+        env = gym.make("LunarLander-v2", render_mode='human' if render else None)
+        actor = self.actor_model
+        critic = self.critic_model
 
-    def train(self, render=False, paralel=False, with_gae=True,combined_loss=False, same_size=False):
+        actor.load_state_dict(torch.load(actor_path, weights_only=True))
+        critic.load_state_dict(torch.load(critic_path, weights_only=True))
+
+        current_state = torch.Tensor(env.reset()[0])
+        terminated = False
+        truncated = False
+        while not terminated or truncated:
+            with torch.no_grad():
+                action, _, _ = self.get_action(current_state,actor, critic)
+
+            next_state, reward, terminated, truncated, _ = env.step(action.item())
+            next_state = torch.tensor(next_state, dtype=torch.float32)
+
+            current_state = next_state
+
+    def train(self, paralel=False, with_gae=True,combined_loss=False, same_size=False):
 
         env = self.env
         actor_model = self.actor_model
         critic_model = self.critic_model
         optimizer_actor = torch.optim.Adam(actor_model.parameters(), lr=self.adam_step)
         optimizer_critic = torch.optim.Adam(critic_model.parameters(), lr=self.adam_step)
+        reward_per_episode = []
+        max_total_reward = -1000
 
         for i in range(self.num_eps):
 
@@ -391,8 +414,16 @@ class TrainingPPO:
                     lst_at_val = (lst_at_val - lst_at_val.mean())/ (lst_at_val.std() + 1e-10)
                     
 
+            curr_total_reward = torch.sum(reward_lst_batched).item()
+            if curr_total_reward > 0 and curr_total_reward > max_total_reward:
+                max_total_reward =  curr_total_reward
+                torch.save(actor_model.state_dict(),  f'./weight/run2/ppo_act_model{i}.pth')
+                torch.save(critic_model.state_dict(), f'./weight/run2/ppo_crit_model{i}.pth')
+
+            reward_per_episode.append(torch.sum(reward_lst_batched).item())
+
             if i % 20 == 0:
-                print(f"Reward episode {i}: {torch.sum(reward_lst_batched).item()} max reward: {torch.max(reward_lst_batched).item()}")
+                print(f"Reward episode {i}: {curr_total_reward} max reward: {torch.max(reward_lst_batched).item()}")
                 # print(f"Average Reward for {i} episode: {torch.mean(reward_lst_batched).item()} | Max Reward: {torch.max(reward_lst_batched).item()}")
 
 
@@ -428,9 +459,15 @@ class TrainingPPO:
                     optimizer_critic.zero_grad() 
                     L_value.backward()
                     optimizer_critic.step()
-# 
-        torch.save(actor_model.state_dict(), './ppo_act_model.pth')
-        torch.save(critic_model.state_dict(), './ppo_crit_model.pth')
+
+        # torch.save(actor_model.state_dict(), './ppo_act_model.pth')
+        # torch.save(critic_model.state_dict(), './ppo_crit_model.pth')
+        plt.plot(reward_per_episode)
+        plt.xlabel("Episodes")
+        plt.ylabel("Total Reward")
+
+        plt.savefig('total_reward_per_episode.png')
+
 
 
             
@@ -439,7 +476,10 @@ def main():
     filterwarnings(action='ignore', category=DeprecationWarning)
     torch.manual_seed(1337)
     PPOTraining = TrainingPPO()
-    PPOTraining.train()
+    # PPOTraining.train()
+    actor_path = 'weight/run2/ppo_act_model153.pth'
+    critic_path = 'weight/run2/ppo_crit_model153.pth'
+    PPOTraining.test(actor_path=actor_path,critic_path=critic_path)
 
 if __name__ == "__main__":
     main()
